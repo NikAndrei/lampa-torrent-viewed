@@ -38,17 +38,26 @@
 2. Введите адрес:
 
    ```
-   https://cdn.jsdelivr.net/gh/NikAndrei/lampa-torrent-viewed@main/viewed.js
+   https://nikandrei.github.io/lampa-torrent-viewed/viewed.js
    ```
 
 3. Перезапустите Lampa.
 4. Откройте сериал → Торренты → выберите раздачу. В списке файлов появятся отметки.
 
+Запасной адрес через jsDelivr:
+`https://cdn.jsdelivr.net/gh/NikAndrei/lampa-torrent-viewed@main/viewed.js`
+
 ## Обновление
 
-Файл раздаёт jsDelivr прямо из этого репозитория. Он кэширует `@main` примерно на 12 часов. Чтобы новая версия пришла сразу после коммита, откройте в браузере
-https://purge.jsdelivr.net/gh/NikAndrei/lampa-torrent-viewed@main/viewed.js
-и перезапустите Lampa.
+Адрес `nikandrei.github.io` раздаёт GitHub Pages из ветки `gh-pages`. После изменений в `main` её нужно обновить:
+
+```bash
+git push origin main main:gh-pages
+```
+
+Через минуту-две новая версия будет на сайте. Перезапустите Lampa, чтобы она её загрузила.
+
+jsDelivr берёт файл из `main` и держит старую версию до 12 часов. Чтобы сбросить её сразу, откройте https://purge.jsdelivr.net/gh/NikAndrei/lampa-torrent-viewed@main/viewed.js.
 
 Ссылка вида `raw.githubusercontent.com/...` **не подойдёт**: GitHub отдаёт её как `text/plain` с заголовком `nosniff`, и браузер не запускает такой скрипт.
 
