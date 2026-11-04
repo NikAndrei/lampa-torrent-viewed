@@ -177,9 +177,34 @@
         }
     }
 
+    // Когда отмечать серию просмотренной: 'start' — при запуске, 'off' — никогда, число — процент просмотра
+    function markAt() {
+        var v = String(Lampa.Storage.field('tsv_mark_at'));
+
+        return v == 'start' || v == 'off' ? v : (parseInt(v, 10) || 90);
+    }
+
+    // Серии, запущенные в плеере: timeline hash -> {hash, id}. Отметку ставим, когда прогресс дойдёт до порога
+    var playing = {};
+
+    function onTimelineProgress(e) {
+        var p = e.data && playing[e.data.hash];
+        var at = markAt();
+
+        if (!p || typeof at !== 'number') return;
+
+        if ((e.data.road || {}).percent >= at) {
+            delete playing[e.data.hash];
+
+            setViewed(p.hash, p.id, true);
+        }
+    }
+
     // Пункты самой Lampa «Сбросить таймкод» / «Отметить как просмотренное» меняют timeline:
     // переносим это в TorrServer
     function onTimeline(e) {
+        onTimelineProgress(e);
+
         if (!pending_long || !e.data || e.data.hash !== pending_long.hash) return;
         if (Date.now() - pending_long.time > 60000) return (pending_long = null);
 
@@ -204,7 +229,9 @@
 
         rememberLast(data);
 
-        if (!enabled('tsv_mark_on_start')) return;
+        var at = markAt();
+
+        if (at == 'off') return;
 
         var id = data.id;
 
@@ -213,7 +240,13 @@
             if (m) id = parseInt(m[1], 10);
         }
 
-        if (id) setViewed(data.torrent_hash, id, true);
+        if (!id) return;
+
+        var timeline = data.timeline || {};
+
+        // Уже досмотренную раньше серию отмечаем сразу, остальные — когда прогресс дойдёт до порога
+        if (at == 'start' || (timeline.percent || 0) >= at) setViewed(data.torrent_hash, id, true);
+        else if (timeline.hash) playing[timeline.hash] = { hash: data.torrent_hash, id: id };
     }
 
     /*
@@ -581,8 +614,11 @@
             tsv_viewed: { ru: 'просмотрено', uk: 'переглянуто', en: 'watched' },
             tsv_mark: { ru: 'TorrServer: отметить просмотренной', uk: 'TorrServer: позначити переглянутою', en: 'TorrServer: mark as watched' },
             tsv_unmark: { ru: 'TorrServer: снять отметку просмотра', uk: 'TorrServer: зняти позначку перегляду', en: 'TorrServer: unmark watched' },
-            tsv_mark_on_start: { ru: 'Отмечать серию при запуске', uk: 'Позначати серію при запуску', en: 'Mark episode on start' },
-            tsv_mark_on_start_descr: { ru: 'Плагин TorrServer Viewed: ставит отметку «просмотрено» в TorrServer, когда файл запускается из Lampa', uk: 'Плагін TorrServer Viewed: ставить позначку «переглянуто» в TorrServer при запуску файлу з Lampa', en: 'TorrServer Viewed plugin: marks the file as watched in TorrServer when it is played from Lampa' },
+            tsv_mark_at: { ru: 'Отмечать серию просмотренной', uk: 'Позначати серію переглянутою', en: 'Mark episode as watched' },
+            tsv_mark_at_descr: { ru: 'Плагин TorrServer Viewed: когда ставить отметку «просмотрено» в TorrServer для серии, запущенной из Lampa', uk: 'Плагін TorrServer Viewed: коли ставити позначку «переглянуто» в TorrServer для серії, запущеної з Lampa', en: 'TorrServer Viewed plugin: when to mark an episode played from Lampa as watched in TorrServer' },
+            tsv_mark_at_start: { ru: 'При запуске', uk: 'При запуску', en: 'On start' },
+            tsv_mark_at_off: { ru: 'Не отмечать', uk: 'Не позначати', en: 'Never' },
+            tsv_mark_at_percent: { ru: 'После просмотра', uk: 'Після перегляду', en: 'After watching' },
             tsv_season: { ru: 'сезон', uk: 'сезон', en: 'season' },
             tsv_episode: { ru: 'серия', uk: 'серія', en: 'episode' },
             tsv_watching: { ru: 'Смотрите', uk: 'Дивитесь', en: 'Watching' },
@@ -600,8 +636,19 @@
 
         Lampa.SettingsApi.addParam({
             component: 'server',
-            param: { name: 'tsv_mark_on_start', type: 'trigger', default: true },
-            field: { name: Lampa.Lang.translate('tsv_mark_on_start'), description: Lampa.Lang.translate('tsv_mark_on_start_descr') }
+            param: {
+                name: 'tsv_mark_at',
+                type: 'select',
+                values: {
+                    '80': Lampa.Lang.translate('tsv_mark_at_percent') + ' 80%',
+                    '90': Lampa.Lang.translate('tsv_mark_at_percent') + ' 90%',
+                    '95': Lampa.Lang.translate('tsv_mark_at_percent') + ' 95%',
+                    'start': Lampa.Lang.translate('tsv_mark_at_start'),
+                    'off': Lampa.Lang.translate('tsv_mark_at_off')
+                },
+                default: '90'
+            },
+            field: { name: Lampa.Lang.translate('tsv_mark_at'), description: Lampa.Lang.translate('tsv_mark_at_descr') }
         });
 
         Lampa.SettingsApi.addParam({
