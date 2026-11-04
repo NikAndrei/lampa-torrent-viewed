@@ -184,17 +184,38 @@
         return v == 'start' || v == 'off' ? v : (parseInt(v, 10) || 90);
     }
 
-    // Серии, запущенные в плеере: timeline hash -> {hash, id}. Отметку ставим, когда прогресс дойдёт до порога
+    /*
+     * Серии текущего запуска: timeline hash -> {hash, id, el, marked}.
+     * Внешний плеер на Android получает от Lampa весь плейлист и сам переключает серии,
+     * а Lampa узнаёт о них только по прогрессу, который плеер вернёт после выхода.
+     * Поэтому следим за всеми сериями плейлиста, а не только за запущенной.
+     */
     var playing = {};
+
+    function fileId(el) {
+        var id = el.id;
+
+        if (!id && el.url) {
+            var m = String(el.url).match(/[?&]index=(\d+)/);
+            if (m) id = parseInt(m[1], 10);
+        }
+
+        return id;
+    }
 
     function onTimelineProgress(e) {
         var p = e.data && playing[e.data.hash];
+
+        if (!p) return;
+
+        var road = e.data.road || {};
         var at = markAt();
 
-        if (!p || typeof at !== 'number') return;
+        // Пошёл прогресс у серии — она становится текущей, если она дальше прежней
+        if (road.percent > 0 || road.time > 0) rememberLast(p.el, true);
 
-        if ((e.data.road || {}).percent >= at) {
-            delete playing[e.data.hash];
+        if (typeof at == 'number' && !p.marked && road.percent >= at) {
+            p.marked = true;
 
             setViewed(p.hash, p.id, true);
         }
@@ -227,26 +248,34 @@
     function onPlayerStart(data) {
         if (!data || !data.torrent_hash) return;
 
-        rememberLast(data);
-
         var at = markAt();
+        var list = [data].concat(Array.isArray(data.playlist) ? data.playlist : []);
+
+        // Запущенная серия — текущая, даже если она раньше прежней (решили пересмотреть)
+        rememberLast(data, false);
+
+        list.forEach(function (el) {
+            var id = fileId(el);
+            var timeline = el.timeline || {};
+
+            if (!id || !el.torrent_hash || !timeline.hash) return;
+
+            playing[timeline.hash] = { hash: el.torrent_hash, id: id, el: el, marked: false };
+        });
 
         if (at == 'off') return;
 
-        var id = data.id;
-
-        if (!id && data.url) {
-            var m = String(data.url).match(/[?&]index=(\d+)/);
-            if (m) id = parseInt(m[1], 10);
-        }
+        var id = fileId(data);
+        var timeline = data.timeline || {};
 
         if (!id) return;
 
-        var timeline = data.timeline || {};
-
         // Уже досмотренную раньше серию отмечаем сразу, остальные — когда прогресс дойдёт до порога
-        if (at == 'start' || (timeline.percent || 0) >= at) setViewed(data.torrent_hash, id, true);
-        else if (timeline.hash) playing[timeline.hash] = { hash: data.torrent_hash, id: id };
+        if (at == 'start' || (typeof at == 'number' && (timeline.percent || 0) >= at)) {
+            if (timeline.hash && playing[timeline.hash]) playing[timeline.hash].marked = true;
+
+            setViewed(data.torrent_hash, id, true);
+        }
     }
 
     /*
@@ -309,17 +338,27 @@
         }, 100);
     }
 
-    function rememberLast(data) {
-        var id = data.id;
+    // Порядок серии в раздаче: по сезону и серии, если их удалось распознать, иначе по номеру файла
+    function fileOrder(file, id) {
+        return file && file[1] ? file[0] * 10000 + file[1] : id;
+    }
+
+    // only_forward: менять текущую серию, только если новая дальше прежней
+    function rememberLast(data, only_forward) {
+        var id = fileId(data);
 
         if (!data.torrent_hash || !id) return;
 
         var all = watchData();
         var torrent = watchTorrent(all, data.torrent_hash, data.card);
 
-        torrent.last = { index: id, time: Date.now() };
-
         if (!torrent.files[id]) torrent.files[id] = [data.season || 0, data.episode || 0, data.fname || data.title || ''];
+
+        var last = torrent.last;
+        var forward = !last || fileOrder(torrent.files[id], id) > fileOrder(torrent.files[last.index], last.index);
+
+        if (!only_forward || forward) torrent.last = { index: id, time: Date.now() };
+        else if (last.index == id) last.time = Date.now();
 
         watchSave(all);
     }
